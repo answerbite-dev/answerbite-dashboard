@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+
+
+const RESTAURANT_ID = "00000000-0000-0000-0000-000000000001";
+const API_URL = "https://answerbite-voice-production.up.railway.app";
 
 /* ── Sparkline ─────────────────────────────────────────────────────────────── */
 function Sparkline({ data, color = "#E8FF5A", width = 120, height = 36 }: { data: number[]; color?: string; width?: number; height?: number }) {
+  if (!data || data.length < 2) return <div style={{ height, width }} />;
   const max = Math.max(...data), min = Math.min(...data), range = max - min || 1;
   const pts = data.map((v, i) => `${(i / (data.length - 1)) * width},${height - ((v - min) / range) * height}`).join(" ");
   const id = `sp-${color.replace("#", "")}`;
@@ -19,7 +24,7 @@ function Sparkline({ data, color = "#E8FF5A", width = 120, height = 36 }: { data
 
 /* ── Bar Chart ─────────────────────────────────────────────────────────────── */
 function BarChart({ data, labels, color = "#E8FF5A" }: { data: number[]; labels: string[]; color?: string }) {
-  const max = Math.max(...data);
+  const max = Math.max(...data, 1);
   return (
     <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 110 }}>
       {data.map((v, i) => (
@@ -36,11 +41,12 @@ function BarChart({ data, labels, color = "#E8FF5A" }: { data: number[]; labels:
 /* ── Donut ──────────────────────────────────────────────────────────────────── */
 function Donut({ segments }: { segments: { value: number; color: string; label: string }[] }) {
   const total = segments.reduce((s, x) => s + x.value, 0);
+  if (total === 0) return <p style={{ fontSize: 13, color: "var(--text-dim)", textAlign: "center", padding: 30 }}>No data yet</p>;
   let cum = 0; const r = 44, C = 2 * Math.PI * r;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
       <svg width={120} height={120} viewBox="0 0 120 120" style={{ transform: "rotate(-90deg)" }}>
-        {segments.map((seg, i) => {
+        {segments.filter(s => s.value > 0).map((seg, i) => {
           const pct = seg.value / total, off = C * (1 - pct), rot = (cum / total) * 360;
           cum += seg.value;
           return <circle key={i} cx={60} cy={60} r={r} fill="none" stroke={seg.color} strokeWidth={14} strokeDasharray={C} strokeDashoffset={off} style={{ transform: `rotate(${rot}deg)`, transformOrigin: "center" }} strokeLinecap="round" />;
@@ -51,7 +57,7 @@ function Donut({ segments }: { segments: { value: number; color: string; label: 
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: seg.color }} />
             <span style={{ color: "var(--text-dim)" }}>{seg.label}</span>
-            <span style={{ color: "var(--text-primary)", fontWeight: 600, marginLeft: "auto" }}>{Math.round((seg.value / total) * 100)}%</span>
+            <span style={{ color: "var(--text-primary)", fontWeight: 600, marginLeft: "auto" }}>{total > 0 ? Math.round((seg.value / total) * 100) : 0}%</span>
           </div>
         ))}
       </div>
@@ -60,11 +66,9 @@ function Donut({ segments }: { segments: { value: number; color: string; label: 
 }
 
 /* ── Stat Card ─────────────────────────────────────────────────────────────── */
-function Stat({ icon, label, value, change, dir, spark, sparkColor, delay = 0 }: { icon: React.ReactNode; label: string; value: string; change?: string; dir?: "up" | "down"; spark?: number[]; sparkColor?: string; delay?: number }) {
-  const [show, setShow] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setShow(true), delay); return () => clearTimeout(t); }, [delay]);
+function Stat({ icon, label, value, change, dir, spark, sparkColor }: { icon: React.ReactNode; label: string; value: string; change?: string; dir?: "up" | "down"; spark?: number[]; sparkColor?: string }) {
   return (
-    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14, opacity: show ? 1 : 0, transform: show ? "translateY(0)" : "translateY(12px)", transition: "all 0.5s cubic-bezier(0.22,1,0.36,1)" }}>
+    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14, animation: "fadeUp 0.5s ease both" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ color: "var(--accent)" }}>{icon}</span>
@@ -73,7 +77,17 @@ function Stat({ icon, label, value, change, dir, spark, sparkColor, delay = 0 }:
         {change && <span style={{ fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 3, color: dir === "up" ? "#4ADE80" : "#F87171", background: dir === "up" ? "#4ADE8015" : "#F8717115", padding: "3px 8px", borderRadius: 20 }}>{dir === "up" ? "↑" : "↓"} {change}</span>}
       </div>
       <div style={{ fontSize: 30, fontWeight: 700, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{value}</div>
-      {spark && <Sparkline data={spark} color={sparkColor || "var(--accent)"} />}
+      {spark && spark.length > 1 ? <Sparkline data={spark} color={sparkColor || "var(--accent)"} /> : <div style={{ height: 36, display: "flex", alignItems: "flex-end" }}><div style={{ width: "100%", height: 1, background: "var(--border)" }} /></div>}
+    </div>
+  );
+}
+
+/* ── Empty State ───────────────────────────────────────────────────────────── */
+function EmptyState({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 20px", textAlign: "center" }}>
+      <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>{title}</p>
+      <p style={{ fontSize: 12, color: "var(--text-dim)", maxWidth: 260, lineHeight: 1.5 }}>{subtitle}</p>
     </div>
   );
 }
@@ -93,38 +107,102 @@ const I = {
   search: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>,
 };
 
-/* ── Sample Call Data ──────────────────────────────────────────────────────── */
-const callLog = [
-  { caller: "(313) 555-0142", type: "Order", detail: "Large pepperoni, garlic knots, 2L Coke", status: "completed", amount: "$34.50", duration: "2:34", time: "3m ago" },
-  { caller: "(248) 555-0198", type: "Reservation", detail: "Party of 6, Saturday 7:00 PM", status: "booked", amount: "—", duration: "1:47", time: "11m ago" },
-  { caller: "(313) 555-0267", type: "FAQ", detail: "Gluten-free options & allergen info", status: "answered", amount: "—", duration: "1:12", time: "18m ago" },
-  { caller: "(734) 555-0321", type: "Order", detail: "2x Margherita, Caesar salad, tiramisu", status: "completed", amount: "$52.80", duration: "3:15", time: "24m ago" },
-  { caller: "(248) 555-0455", type: "Transfer", detail: "Catering inquiry for 80 guests", status: "transferred", amount: "—", duration: "0:45", time: "31m ago" },
-  { caller: "(313) 555-0589", type: "Missed", detail: "Voicemail left (0:32)", status: "missed", amount: "—", duration: "—", time: "38m ago" },
-  { caller: "(734) 555-0712", type: "Order", detail: "Family combo meal, extra ranch", status: "completed", amount: "$41.20", duration: "2:08", time: "45m ago" },
-];
+/* ── Types ─────────────────────────────────────────────────────────────────── */
+interface Call {
+  id: string;
+  caller_number: string;
+  caller_name: string | null;
+  call_type: string | null;
+  status: string;
+  summary: string | null;
+  duration_seconds: number | null;
+  started_at: string;
+}
 
-const activity = [
-  { event: "Order placed", detail: "Large pepperoni + sides → POS synced", time: "3m ago", color: "#4ADE80", icon: "🛒" },
-  { event: "Reservation booked", detail: "Party of 6, Sat 7 PM → OpenTable", time: "11m ago", color: "#E8FF5A", icon: "📅" },
-  { event: "FAQ handled", detail: "Gluten-free menu info provided", time: "18m ago", color: "#60A5FA", icon: "💬" },
-  { event: "Call transferred", detail: "Catering → Manager line", time: "31m ago", color: "#8B5CF6", icon: "↗️" },
-  { event: "Missed call", detail: "Voicemail recorded & transcribed", time: "38m ago", color: "#F87171", icon: "📵" },
-];
+interface Order {
+  id: string;
+  total: number | null;
+  created_at: string;
+}
 
-const callTypes = [
-  { name: "Phone Orders", count: 487, pct: 38 },
-  { name: "Reservations", count: 312, pct: 24 },
-  { name: "Menu / Dietary", count: 198, pct: 15 },
-  { name: "Hours / Location", count: 156, pct: 12 },
-  { name: "Catering / Events", count: 142, pct: 11 },
-];
+interface Restaurant {
+  name: string;
+  address: string;
+}
 
 /* ── Dashboard ─────────────────────────────────────────────────────────────── */
 export default function Dashboard() {
   const router = useRouter();
   const [nav, setNav] = useState("home");
   const [search, setSearch] = useState("");
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [calls, setCalls] = useState<Call[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [totalReservations, setTotalReservations] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch data
+  const fetchData = useCallback(async () => {
+    try {
+      const [restaurantRes, callsRes, ordersRes, reservationsRes] = await Promise.all([
+        fetch(`${API_URL}/api/restaurant/${RESTAURANT_ID}`),
+        fetch(`${API_URL}/api/calls/${RESTAURANT_ID}?limit=50`),
+        fetch(`${API_URL}/api/orders/${RESTAURANT_ID}?limit=50`),
+        fetch(`${API_URL}/api/reservations/${RESTAURANT_ID}?limit=50`),
+      ]);
+
+      const restaurantData = await restaurantRes.json();
+      const callsData = await callsRes.json();
+      const ordersData = await ordersRes.json();
+      const reservationsData = await reservationsRes.json();
+
+      setRestaurant({ name: restaurantData.name, address: restaurantData.address });
+      setCalls(Array.isArray(callsData) ? callsData : []);
+      setOrders(Array.isArray(ordersData) ? ordersData : []);
+      setTotalReservations(Array.isArray(reservationsData) ? reservationsData.length : 0);
+    } catch (err) {
+      console.error("Failed to fetch data:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+
+    // Poll for updates every 10 seconds
+    const interval = setInterval(fetchData, 10000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  // Computed stats
+  const totalCalls = calls.length;
+  const totalOrders = orders.length;
+  const totalRevenue = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+
+  // Call type counts
+  const callTypeCounts: Record<string, number> = {};
+  calls.forEach((c) => { callTypeCounts[c.call_type || "other"] = (callTypeCounts[c.call_type || "other"] || 0) + 1; });
+
+  // Daily volume (last 7 days)
+  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dailyVolume = new Array(7).fill(0);
+  calls.forEach((c) => {
+    const day = new Date(c.started_at).getDay();
+    dailyVolume[day]++;
+  });
+  const orderedDays = [...dailyVolume.slice(1), dailyVolume[0]]; // Mon-Sun
+  const orderedLabels = [...dayLabels.slice(1), dayLabels[0]];
+
+  // Status styles
+  const statusStyle: Record<string, { color: string; bg: string }> = {
+    completed: { color: "#4ADE80", bg: "#4ADE8015" },
+    booked: { color: "#E8FF5A", bg: "#E8FF5A15" },
+    answered: { color: "#60A5FA", bg: "#60A5FA15" },
+    transferred: { color: "#8B5CF6", bg: "#8B5CF615" },
+    missed: { color: "#F87171", bg: "#F8717115" },
+    in_progress: { color: "#FBBF24", bg: "#FBBF2415" },
+  };
 
   const navItems = [
     { id: "home", icon: I.home, label: "Overview" },
@@ -136,13 +214,30 @@ export default function Dashboard() {
     { id: "settings", icon: I.settings, label: "Settings" },
   ];
 
-  const statusStyle: Record<string, { color: string; bg: string }> = {
-    completed: { color: "#4ADE80", bg: "#4ADE8015" },
-    booked: { color: "#E8FF5A", bg: "#E8FF5A15" },
-    answered: { color: "#60A5FA", bg: "#60A5FA15" },
-    transferred: { color: "#8B5CF6", bg: "#8B5CF615" },
-    missed: { color: "#F87171", bg: "#F8717115" },
+  const formatDuration = (secs: number | null) => {
+    if (!secs) return "—";
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
   };
+
+  const timeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  };
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "var(--text-dim)", fontSize: 14 }}>Loading dashboard...</p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg-primary)" }}>
@@ -158,10 +253,9 @@ export default function Dashboard() {
             </svg>
             <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em" }}>AnswerBite</span>
           </div>
-          {/* Store name */}
           <div style={{ padding: "10px 12px", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8 }}>
-            <p style={{ fontSize: 13, fontWeight: 600 }}>Tony&apos;s Pizza</p>
-            <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>742 Evergreen Terrace, Detroit</p>
+            <p style={{ fontSize: 13, fontWeight: 600 }}>{restaurant?.name || "Loading..."}</p>
+            <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>{restaurant?.address || ""}</p>
           </div>
         </div>
 
@@ -173,13 +267,14 @@ export default function Dashboard() {
           ))}
         </nav>
 
-        {/* Agent Active */}
         <div style={{ margin: "0 10px 12px", padding: "14px", borderRadius: 10, background: "var(--bg-card)", border: "1px solid var(--border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ADE80", boxShadow: "0 0 8px #4ADE8060" }} />
-            <span style={{ fontSize: 12, fontWeight: 600 }}>AI Agent Active</span>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: totalCalls > 0 ? "#4ADE80" : "#FBBF24", boxShadow: `0 0 8px ${totalCalls > 0 ? "#4ADE8060" : "#FBBF2460"}` }} />
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{totalCalls > 0 ? "AI Agent Active" : "Waiting for calls"}</span>
           </div>
-          <p style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>Answering calls 24/7. POS synced.</p>
+          <p style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+            {totalCalls > 0 ? `${totalCalls} calls handled` : "Agent ready. No calls yet."}
+          </p>
         </div>
 
         <div style={{ padding: "0 10px" }}>
@@ -199,102 +294,75 @@ export default function Dashboard() {
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <button style={{ position: "relative", color: "var(--text-secondary)", background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8, padding: 8, display: "flex", cursor: "pointer" }}>
               {I.bell}
-              <span style={{ position: "absolute", top: 5, right: 5, width: 7, height: 7, borderRadius: "50%", background: "#F87171" }} />
+              {calls.some(c => c.status === "missed") && <span style={{ position: "absolute", top: 5, right: 5, width: 7, height: 7, borderRadius: "50%", background: "#F87171" }} />}
             </button>
             <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg, #E8FF5A, #4ADE80)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#0a0a0b" }}>TP</div>
           </div>
         </header>
 
         <div style={{ padding: "28px 32px", display: "flex", flexDirection: "column", gap: 24 }}>
-          <div style={{ animation: "fadeUp 0.5s ease both" }}>
-            <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em" }}>Tony&apos;s Pizza</h1>
+          <div>
+            <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em" }}>{restaurant?.name || "Dashboard"}</h1>
             <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>AI phone agent — live dashboard</p>
           </div>
 
           {/* Stats */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-            <Stat icon={I.phone} label="Total Calls" value="1,847" change="18.2%" dir="up" spark={[120, 145, 132, 168, 155, 189, 176, 201, 194, 218]} sparkColor="#E8FF5A" delay={0} />
-            <Stat icon={I.order} label="Orders Taken" value="643" change="22.4%" dir="up" spark={[40, 52, 48, 61, 55, 72, 68, 80, 76, 89]} sparkColor="#4ADE80" delay={80} />
-            <Stat icon={I.calendar} label="Reservations" value="312" change="14.1%" dir="up" spark={[20, 28, 25, 35, 32, 40, 38, 44, 42, 48]} sparkColor="#60A5FA" delay={160} />
-            <Stat icon={I.dollar} label="Revenue Captured" value="$28.4K" change="22%" dir="up" spark={[1800, 2100, 2400, 2200, 2800, 3100, 2900, 3400, 3200, 3800]} sparkColor="#FBBF24" delay={240} />
+            <Stat icon={I.phone} label="Total Calls" value={totalCalls.toLocaleString()} />
+            <Stat icon={I.order} label="Orders Taken" value={totalOrders.toLocaleString()} />
+            <Stat icon={I.calendar} label="Reservations" value={totalReservations.toLocaleString()} />
+            <Stat icon={I.dollar} label="Revenue Captured" value={`$${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
           </div>
 
           {/* Charts */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "22px 24px", animation: "fadeUp 0.5s ease both", animationDelay: "0.2s" }}>
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "22px 24px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 600 }}>Daily Call Volume</h3>
                 <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "'JetBrains Mono', monospace" }}>This week</span>
               </div>
-              <BarChart data={[186, 245, 218, 272, 258, 293, 201]} labels={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]} />
+              {totalCalls > 0 ? (
+                <BarChart data={orderedDays} labels={orderedLabels} />
+              ) : (
+                <EmptyState title="No calls yet" subtitle="Call data will appear here once your AI agent starts handling calls." />
+              )}
             </div>
-            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "22px 24px", animation: "fadeUp 0.5s ease both", animationDelay: "0.3s" }}>
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "22px 24px" }}>
               <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 20 }}>Call Outcomes</h3>
               <Donut segments={[
-                { value: 38, color: "#4ADE80", label: "Orders placed" },
-                { value: 24, color: "#E8FF5A", label: "Reservations" },
-                { value: 20, color: "#60A5FA", label: "FAQ answered" },
-                { value: 12, color: "#8B5CF6", label: "Transferred" },
-                { value: 6, color: "#F87171", label: "Missed" },
+                { value: callTypeCounts["order"] || 0, color: "#4ADE80", label: "Orders" },
+                { value: callTypeCounts["reservation"] || 0, color: "#E8FF5A", label: "Reservations" },
+                { value: callTypeCounts["faq"] || 0, color: "#60A5FA", label: "FAQ" },
+                { value: callTypeCounts["transfer"] || 0, color: "#8B5CF6", label: "Transferred" },
+                { value: callTypeCounts["missed"] || 0, color: "#F87171", label: "Missed" },
               ]} />
             </div>
           </div>
 
-          {/* Call Log + Sidebar */}
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
-            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "22px 24px", animation: "fadeUp 0.5s ease both", animationDelay: "0.35s" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600 }}>Recent Calls</h3>
-                <button style={{ fontSize: 12, color: "var(--accent)", fontWeight: 500, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>View all →</button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "120px 65px 1fr 85px 55px 55px 55px", gap: 6, padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500 }}>
-                <span>Caller</span><span>Type</span><span>Detail</span><span>Status</span><span>Amount</span><span>Dur.</span><span>Time</span>
-              </div>
-              {callLog.map((c, i) => {
-                const st = statusStyle[c.status] || { color: "var(--text-dim)", bg: "transparent" };
-                return (
-                  <div key={i} style={{ display: "grid", gridTemplateColumns: "120px 65px 1fr 85px 55px 55px 55px", gap: 6, padding: "10px 0", borderBottom: i < callLog.length - 1 ? "1px solid var(--border)" : "none", fontSize: 12, alignItems: "center" }}>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "var(--text-secondary)" }}>{c.caller}</span>
-                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-secondary)", textAlign: "center" }}>{c.type}</span>
-                    <span style={{ color: "var(--text-primary)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.detail}</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: st.color, background: st.bg, padding: "2px 8px", borderRadius: 12, textAlign: "center", textTransform: "capitalize" }}>{c.status}</span>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: c.amount !== "—" ? "#4ADE80" : "var(--text-dim)" }}>{c.amount}</span>
-                    <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{c.duration}</span>
-                    <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{c.time}</span>
-                  </div>
-                );
-              })}
+          {/* Call Log */}
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "22px 24px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600 }}>Recent Calls</h3>
+              <span style={{ fontSize: 12, color: "var(--text-dim)" }}>{totalCalls} total</span>
             </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "22px 24px", animation: "fadeUp 0.5s ease both", animationDelay: "0.4s" }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>Live Activity</h3>
-                {activity.map((a, i) => (
-                  <div key={i} style={{ display: "flex", gap: 12, padding: "10px 0", borderBottom: i < activity.length - 1 ? "1px solid var(--border)" : "none" }}>
-                    <span style={{ fontSize: 16, width: 32, height: 32, borderRadius: 8, background: `${a.color}15`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{a.icon}</span>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontSize: 12, fontWeight: 600 }}>{a.event}</p>
-                      <p style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>{a.detail}</p>
-                      <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{a.time}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: "22px 24px", animation: "fadeUp 0.5s ease both", animationDelay: "0.45s" }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>Call Types</h3>
-                {callTypes.map((t, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
-                    <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "'JetBrains Mono', monospace", width: 16 }}>{i + 1}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{t.name}</span>
-                    <div style={{ width: 80, height: 6, background: "var(--bg-secondary)", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${(t.pct / 38) * 100}%`, background: "var(--accent)", borderRadius: 3 }} />
-                    </div>
-                    <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "'JetBrains Mono', monospace", width: 32, textAlign: "right" }}>{t.count}</span>
-                  </div>
-                ))}
-              </div>
+            <div style={{ display: "grid", gridTemplateColumns: "130px 80px 1fr 90px 70px 70px", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500 }}>
+              <span>Caller</span><span>Type</span><span>Summary</span><span>Status</span><span>Duration</span><span>Time</span>
             </div>
+            {calls.length > 0 ? calls.slice(0, 10).map((c, i) => {
+              const st = statusStyle[c.status] || { color: "var(--text-dim)", bg: "transparent" };
+              return (
+                <div key={c.id} style={{ display: "grid", gridTemplateColumns: "130px 80px 1fr 90px 70px 70px", gap: 8, padding: "10px 0", borderBottom: i < Math.min(calls.length, 10) - 1 ? "1px solid var(--border)" : "none", fontSize: 12, alignItems: "center" }}>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "var(--text-secondary)" }}>{c.caller_number || "Unknown"}</span>
+                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-secondary)", textAlign: "center", textTransform: "capitalize" }}>{c.call_type || "—"}</span>
+                  <span style={{ color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.summary || "No summary"}</span>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: st.color, background: st.bg, padding: "2px 8px", borderRadius: 12, textAlign: "center", textTransform: "capitalize" }}>{c.status}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{formatDuration(c.duration_seconds)}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{timeAgo(c.started_at)}</span>
+                </div>
+              );
+            }) : (
+              <EmptyState title="No calls recorded" subtitle="When customers call your restaurant, every conversation will be logged here." />
+            )}
           </div>
         </div>
       </main>
